@@ -9,6 +9,7 @@ import subprocess
 import glob
 import re
 import argparse
+from typing import Any, Dict, List, Optional, Union
 
 # ANSI Colors
 class Colors:
@@ -23,7 +24,7 @@ class Colors:
     RESET = '\033[0m'
     
     @staticmethod
-    def disable():
+    def disable() -> None:
         Colors.HEADER = ''
         Colors.LABEL = ''
         Colors.BEST = ''
@@ -34,7 +35,10 @@ class Colors:
         Colors.VALUE = ''
         Colors.RESET = ''
 
-def read_file_content(path, default=""):
+
+
+
+def read_file_content(path: str, default: str = "") -> str:
     """Helper to safely read a single line from a file."""
     try:
         with open(path, 'r') as f:
@@ -42,7 +46,7 @@ def read_file_content(path, default=""):
     except:
         return default
 
-def get_pci_name(pci_slot):
+def get_pci_name(pci_slot: str) -> str:
     """
     Get the pretty name of a PCI device using lspci.
     """
@@ -57,13 +61,13 @@ def get_pci_name(pci_slot):
     except:
         return f"Unknown Controller [{pci_slot}]"
 
-def is_cpu_controller(pci_name, pci_slot):
+def is_cpu_controller(pci_name: str, pci_slot: str) -> bool:
     """
     Heuristic to determine if a controller is CPU-direct or Chipset.
     Based on common naming patterns.
     """
     name_lower = pci_name.lower()
-    
+
     # Strong indicators of Chipset/External
     if "chipset" in name_lower:
         return False
@@ -71,11 +75,11 @@ def is_cpu_controller(pci_name, pci_slot):
         return False # ASMedia is often the chipset or aux controller on AMD boards
     if "via" in name_lower or "nec" in name_lower:
         return False # Add-in cards
-        
+
     # Default to True (CPU) for generic AMD/Intel controllers not marked as Chipset
     return True
 
-def get_usb_info(sys_path):
+def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
     """
     Traverse up from a USB device to find its controller and any intermediate hubs.
     """
@@ -85,21 +89,21 @@ def get_usb_info(sys_path):
         return None
 
     hub_count = 0
-    hubs = []
-    
+    hubs: List[str] = []
+
     curr = real_path
-    controller_pci = None
-    
+    controller_pci: Optional[str] = None
+
     # Walk up the directory structure
     while True:
         parent = os.path.dirname(curr)
         base = os.path.basename(curr)
-        
+
         # Check if we hit the PCI device (directory name pattern HHHH:BB:DD.F)
         if re.match(r'^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$', base):
             controller_pci = base
             break
-            
+
         if base.startswith("usb") and base[3:].isdigit():
             # This is the root hub (e.g. usb3), pass through to parent
             pass
@@ -110,7 +114,7 @@ def get_usb_info(sys_path):
                 hub_count += 1
                 hub_name = read_file_content(os.path.join(curr, "product"), "Unknown Hub")
                 hubs.append(hub_name)
-        
+
         if parent == curr: # Reached root without finding PCI (shouldn't happen)
             break
         curr = parent
@@ -121,7 +125,7 @@ def get_usb_info(sys_path):
         "hubs": hubs
     }
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Check USB device connection path (CPU vs Chipset).")
     parser.add_argument("--no-color", action="store_true", help="Disable colored output")
     args = parser.parse_args()
@@ -138,13 +142,13 @@ def main():
     print(f"{Colors.HEADER}CPU DIRECT USB CHECKER (Linux Port){Colors.RESET}")
     print(f"{Colors.HEADER}============================================================{Colors.RESET}")
     print(f"{Colors.WARN}EXPERIMENTAL - detection heuristics are approximated{Colors.RESET}")
-    
+
     # 1. List Controllers
     print("")
     print(f"{Colors.LABEL}USB CONTROLLERS{Colors.RESET}")
-    
-    controllers = {} # slot -> info
-    
+
+    controllers: Dict[str, Dict[str, Any]] = {} # slot -> info
+
     try:
         # Get all USB controllers via lspci
         lspci_out = subprocess.check_output(["lspci", "-nn"], stderr=subprocess.DEVNULL).decode().splitlines()
@@ -153,41 +157,41 @@ def main():
             if "USB controller" in line or "0c03" in line:
                 parts = line.split(' ', 1)
                 slot = parts[0]
-                
+
                 # Check if it exists in sysfs
                 sys_matches = glob.glob(f"/sys/bus/pci/devices/*{slot}")
                 if sys_matches:
                     full_slot = os.path.basename(sys_matches[0])
                     name = get_pci_name(slot)
-                    
+
                     is_cpu = is_cpu_controller(name, slot)
-                    
+
                     controllers[full_slot] = {
                         "name": name,
                         "is_cpu": is_cpu
                     }
-                    
+
                     prefix = f"{Colors.BEST}[CPU]    " if is_cpu else f"{Colors.TEXT}[Chipset]"
                     print(f"  {prefix} {Colors.VALUE}{name}{Colors.RESET}")
-                    
+
     except Exception as e:
         print(f"{Colors.BAD}Error scanning controllers: {e}{Colors.RESET}")
 
     # 2. Input Devices
     print("")
     print(f"{Colors.LABEL}INPUT DEVICES{Colors.RESET}")
-    
+
     found_any = False
-    
+
     # Scan /sys/bus/usb/devices/
     usb_devices = glob.glob("/sys/bus/usb/devices/*")
-    
+
     for dev_path in usb_devices:
         base = os.path.basename(dev_path)
         # Skip root hubs (usbX) and interfaces (1-1:1.0)
         if ":" in base or not "-" in base:
             continue
-            
+
         product_name = read_file_content(os.path.join(dev_path, "product"), "Unknown Device")
         vid = read_file_content(os.path.join(dev_path, "idVendor"))
         pid = read_file_content(os.path.join(dev_path, "idProduct"))
@@ -202,7 +206,7 @@ def main():
             if read_file_content(iface_class_file) == "03": # HID
                 is_input = True
                 break
-        
+
         # Skip Hubs (Class 09) from the device list
         if read_file_content(os.path.join(dev_path, "bDeviceClass")) == "09":
             continue
@@ -217,21 +221,22 @@ def main():
             continue
 
         found_any = True
-        
+
         # Get topology info
         info = get_usb_info(dev_path)
         if not info or not info['controller_pci']:
             continue
-            
-        ctrl_info = controllers.get(info['controller_pci'], {"name": "Unknown", "is_cpu": False})
-        
+
+        pci_slot = info['controller_pci']
+        ctrl_info = controllers.get(pci_slot, {"name": "Unknown", "is_cpu": False}) if pci_slot else {"name": "Unknown", "is_cpu": False}
+
         is_cpu = ctrl_info['is_cpu']
         has_hub = info['hub_count'] > 0
-        
+
         # Determine Status
         status = ""
         status_color = ""
-        
+
         if is_cpu and not has_hub:
             status = "BEST"
             status_color = Colors.BEST
@@ -244,21 +249,21 @@ def main():
         else:
             status = "CHIPSET+HUB"
             status_color = Colors.BAD
-            
+
         print("")
         print(f"  {Colors.VALUE}{product_name}{Colors.RESET}")
         print(f"  {Colors.TEXT}VID:PID {vid}:{pid}{Colors.RESET}")
-        
+
         # Controller
         ct_prefix = Colors.BEST if is_cpu else Colors.WARN
         ct_suffix = "(direct to CPU die)" if is_cpu else "(extra latency)"
         print(f"  {Colors.TEXT}Controller: {ct_prefix}{ctrl_info['name']} {Colors.TEXT}{ct_suffix}{Colors.RESET}")
-        
+
         # Hub
         if has_hub:
             hub_names = ", ".join(info['hubs']) if info['hubs'] else "Yes"
             print(f"  {Colors.TEXT}Hub: {Colors.WARN}YES - {hub_names}{Colors.RESET}")
-            
+
         # Status
         print(f"  {Colors.TEXT}Status: {status_color}[{status}]{Colors.RESET}")
 

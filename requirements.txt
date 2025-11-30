@@ -1,0 +1,3 @@
+# Python dependencies for CPU Direct USB Checker
+# This project uses only standard library modules, so no external dependencies are required.
+# However, the system requires 'pciutils' package for the 'lspci' command.
