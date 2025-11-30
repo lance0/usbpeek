@@ -23,37 +23,54 @@ Original Project: [https://tools.mariusheier.com/cpudirect.html](https://tools.m
 
 ## Installation
 
+### From PyPI (Recommended)
+```bash
+pip install cpu-direct-usb-linux
+```
+
+### From Source
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/lance0/cpu-direct-usb.git
-   cd cpu-direct-usb
-   ```
+    ```bash
+    git clone https://github.com/lance0/cpu-direct-usb.git
+    cd cpu-direct-usb
+    ```
 
-2. Ensure `lspci` is installed:
-   ```bash
-   # Debian/Ubuntu
-   sudo apt install pciutils
+2. Install dependencies:
+    ```bash
+    pip install .
+    ```
 
-   # Arch Linux
-   sudo pacman -S pciutils
+### System Requirements
+Ensure `lspci` is installed (part of pciutils):
+```bash
+# Debian/Ubuntu
+sudo apt install pciutils
 
-   # Fedora
-   sudo dnf install pciutils
-   ```
+# Arch Linux
+sudo pacman -S pciutils
+
+# Fedora
+sudo dnf install pciutils
+```
 
 ## Usage
 
-Run the script directly:
+After installation, run the command:
+
+```bash
+cpu-usb-check
+```
+
+Or run the script directly from source:
 
 ```bash
 python3 cpu_usb_check.py
 ```
 
-Or make it executable:
+To disable colors:
 
 ```bash
-chmod +x cpu_usb_check.py
-./cpu_usb_check.py
+cpu-usb-check --no-color
 ```
 
 ## Example Output
