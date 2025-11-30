@@ -10,7 +10,28 @@ import glob
 import re
 import argparse
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TypedDict, cast
+
+
+# Type definitions
+class ControllerInfo(TypedDict):
+    name: str
+    type: str
+
+
+class DeviceInfo(TypedDict):
+    name: str
+    vid_pid: str
+    controller: str
+    controller_type: str
+    status: str
+    hubs: List[str]
+
+
+class OutputData(TypedDict):
+    controllers: List[ControllerInfo]
+    devices: List[DeviceInfo]
+    error: Optional[str]
 
 
 # ANSI Colors
@@ -161,7 +182,7 @@ def main() -> None:
         sys.exit(1)
 
     controllers: Dict[str, Dict[str, Any]] = {}  # slot -> info
-    data = {"controllers": [], "devices": [], "error": None}
+    data: OutputData = {"controllers": [], "devices": [], "error": None}
 
     try:
         # Get all USB controllers via lspci
@@ -186,7 +207,10 @@ def main() -> None:
 
                     controllers[full_slot] = {"name": name, "is_cpu": is_cpu}
                     data["controllers"].append(
-                        {"name": name, "type": "CPU" if is_cpu else "Chipset"}
+                        cast(
+                            ControllerInfo,
+                            {"name": name, "type": "CPU" if is_cpu else "Chipset"},
+                        )
                     )
 
                     if not args.json:
@@ -288,7 +312,7 @@ def main() -> None:
             "status": status,
             "hubs": info["hubs"] if has_hub else [],
         }
-        data["devices"].append(device_data)
+        data["devices"].append(cast(DeviceInfo, device_data))
 
         if not args.json:
             print("")
