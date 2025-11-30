@@ -83,5 +83,18 @@ INPUT DEVICES
 ## How it works
 The script uses `lspci` to list USB controllers and analyzes `/sys/bus/usb/devices/` to map physical devices to their parent PCI controllers. It attempts to distinguish CPU vs Chipset controllers based on PCI device names and hierarchy heuristics.
 
+## Development
+
+### Running Tests
+```bash
+python3 -m unittest tests.test_cpu_usb_check
+```
+
+### Code Formatting
+This project uses [Black](https://black.readthedocs.io/) for code formatting and [isort](https://pycqa.github.io/isort/) for import sorting.
+
+### Type Checking
+This project uses [mypy](https://mypy.readthedocs.io/) for static type checking.
+
 ## License
 MIT License

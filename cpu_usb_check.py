@@ -11,40 +11,40 @@ import re
 import argparse
 from typing import Any, Dict, List, Optional, Union
 
+
 # ANSI Colors
 class Colors:
-    HEADER = '\033[36m'  # Cyan
-    LABEL = '\033[33m'   # Yellow
-    BEST = '\033[32m'    # Green
-    GOOD = '\033[32m'    # Green
-    WARN = '\033[33m'    # Yellow
-    BAD = '\033[31m'     # Red
-    TEXT = '\033[90m'    # Gray (Bright Black)
-    VALUE = '\033[97m'   # White
-    RESET = '\033[0m'
-    
+    HEADER = "\033[36m"  # Cyan
+    LABEL = "\033[33m"  # Yellow
+    BEST = "\033[32m"  # Green
+    GOOD = "\033[32m"  # Green
+    WARN = "\033[33m"  # Yellow
+    BAD = "\033[31m"  # Red
+    TEXT = "\033[90m"  # Gray (Bright Black)
+    VALUE = "\033[97m"  # White
+    RESET = "\033[0m"
+
     @staticmethod
     def disable() -> None:
-        Colors.HEADER = ''
-        Colors.LABEL = ''
-        Colors.BEST = ''
-        Colors.GOOD = ''
-        Colors.WARN = ''
-        Colors.BAD = ''
-        Colors.TEXT = ''
-        Colors.VALUE = ''
-        Colors.RESET = ''
-
-
+        Colors.HEADER = ""
+        Colors.LABEL = ""
+        Colors.BEST = ""
+        Colors.GOOD = ""
+        Colors.WARN = ""
+        Colors.BAD = ""
+        Colors.TEXT = ""
+        Colors.VALUE = ""
+        Colors.RESET = ""
 
 
 def read_file_content(path: str, default: str = "") -> str:
     """Helper to safely read a single line from a file."""
     try:
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             return f.read().strip()
-    except:
+    except (FileNotFoundError, PermissionError, OSError):
         return default
+
 
 def get_pci_name(pci_slot: str) -> str:
     """
@@ -52,14 +52,21 @@ def get_pci_name(pci_slot: str) -> str:
     """
     try:
         # lspci -s 05:00.4
-        output = subprocess.check_output(["lspci", "-s", pci_slot], stderr=subprocess.DEVNULL).decode().strip()
+        output = (
+            subprocess.check_output(
+                ["lspci", "-s", pci_slot], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
         # Output ex: 05:00.4 USB controller: Advanced Micro Devices, Inc. [AMD] Device 14c9 (rev da)
         # We want the part after "USB controller: "
         if "USB controller:" in output:
             return output.split("USB controller:", 1)[1].strip()
         return output
-    except:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return f"Unknown Controller [{pci_slot}]"
+
 
 def is_cpu_controller(pci_name: str, pci_slot: str) -> bool:
     """
@@ -72,12 +79,13 @@ def is_cpu_controller(pci_name: str, pci_slot: str) -> bool:
     if "chipset" in name_lower:
         return False
     if "asmedia" in name_lower:
-        return False # ASMedia is often the chipset or aux controller on AMD boards
+        return False  # ASMedia is often the chipset or aux controller on AMD boards
     if "via" in name_lower or "nec" in name_lower:
-        return False # Add-in cards
+        return False  # Add-in cards
 
     # Default to True (CPU) for generic AMD/Intel controllers not marked as Chipset
     return True
+
 
 def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
     """
@@ -85,7 +93,7 @@ def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
     """
     try:
         real_path = os.path.realpath(sys_path)
-    except:
+    except OSError:
         return None
 
     hub_count = 0
@@ -100,62 +108,80 @@ def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
         base = os.path.basename(curr)
 
         # Check if we hit the PCI device (directory name pattern HHHH:BB:DD.F)
-        if re.match(r'^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$', base):
+        if re.match(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$", base):
             controller_pci = base
             break
 
         if base.startswith("usb") and base[3:].isdigit():
             # This is the root hub (e.g. usb3), pass through to parent
             pass
-        elif re.match(r'^\d+-\d+(\.\d+)*$', base):
+        elif re.match(r"^\d+-\d+(\.\d+)*$", base):
             # This is a USB device/hub in the chain.
             # If it's not the device itself (which we started with), it's a hub.
             if curr != real_path:
                 hub_count += 1
-                hub_name = read_file_content(os.path.join(curr, "product"), "Unknown Hub")
+                hub_name = read_file_content(
+                    os.path.join(curr, "product"), "Unknown Hub"
+                )
                 hubs.append(hub_name)
 
-        if parent == curr: # Reached root without finding PCI (shouldn't happen)
+        if parent == curr:  # Reached root without finding PCI (shouldn't happen)
             break
         curr = parent
 
-    return {
-        "controller_pci": controller_pci,
-        "hub_count": hub_count,
-        "hubs": hubs
-    }
+    return {"controller_pci": controller_pci, "hub_count": hub_count, "hubs": hubs}
+
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check USB device connection path (CPU vs Chipset).")
-    parser.add_argument("--no-color", action="store_true", help="Disable colored output")
+    parser = argparse.ArgumentParser(
+        description="Check USB device connection path (CPU vs Chipset)."
+    )
+    parser.add_argument(
+        "--no-color", action="store_true", help="Disable colored output"
+    )
     args = parser.parse_args()
 
     if args.no_color:
         Colors.disable()
 
     # Check for lspci
-    if subprocess.call(["which", "lspci"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
-        print(f"{Colors.BAD}Error: 'lspci' command not found. Please install pciutils (e.g., sudo apt install pciutils).{Colors.RESET}")
+    if (
+        subprocess.call(
+            ["which", "lspci"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        != 0
+    ):
+        print(
+            f"{Colors.BAD}Error: 'lspci' command not found. Please install pciutils (e.g., sudo apt install pciutils).{Colors.RESET}"
+        )
         sys.exit(1)
 
     print("")
     print(f"{Colors.HEADER}CPU DIRECT USB CHECKER (Linux Port){Colors.RESET}")
-    print(f"{Colors.HEADER}============================================================{Colors.RESET}")
-    print(f"{Colors.WARN}EXPERIMENTAL - detection heuristics are approximated{Colors.RESET}")
+    print(
+        f"{Colors.HEADER}============================================================{Colors.RESET}"
+    )
+    print(
+        f"{Colors.WARN}EXPERIMENTAL - detection heuristics are approximated{Colors.RESET}"
+    )
 
     # 1. List Controllers
     print("")
     print(f"{Colors.LABEL}USB CONTROLLERS{Colors.RESET}")
 
-    controllers: Dict[str, Dict[str, Any]] = {} # slot -> info
+    controllers: Dict[str, Dict[str, Any]] = {}  # slot -> info
 
     try:
         # Get all USB controllers via lspci
-        lspci_out = subprocess.check_output(["lspci", "-nn"], stderr=subprocess.DEVNULL).decode().splitlines()
+        lspci_out = (
+            subprocess.check_output(["lspci", "-nn"], stderr=subprocess.DEVNULL)
+            .decode()
+            .splitlines()
+        )
         for line in lspci_out:
             # Look for Class 0c03 (USB)
             if "USB controller" in line or "0c03" in line:
-                parts = line.split(' ', 1)
+                parts = line.split(" ", 1)
                 slot = parts[0]
 
                 # Check if it exists in sysfs
@@ -166,15 +192,16 @@ def main() -> None:
 
                     is_cpu = is_cpu_controller(name, slot)
 
-                    controllers[full_slot] = {
-                        "name": name,
-                        "is_cpu": is_cpu
-                    }
+                    controllers[full_slot] = {"name": name, "is_cpu": is_cpu}
 
-                    prefix = f"{Colors.BEST}[CPU]    " if is_cpu else f"{Colors.TEXT}[Chipset]"
+                    prefix = (
+                        f"{Colors.BEST}[CPU]    "
+                        if is_cpu
+                        else f"{Colors.TEXT}[Chipset]"
+                    )
                     print(f"  {prefix} {Colors.VALUE}{name}{Colors.RESET}")
 
-    except Exception as e:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
         print(f"{Colors.BAD}Error scanning controllers: {e}{Colors.RESET}")
 
     # 2. Input Devices
@@ -192,7 +219,9 @@ def main() -> None:
         if ":" in base or not "-" in base:
             continue
 
-        product_name = read_file_content(os.path.join(dev_path, "product"), "Unknown Device")
+        product_name = read_file_content(
+            os.path.join(dev_path, "product"), "Unknown Device"
+        )
         vid = read_file_content(os.path.join(dev_path, "idVendor"))
         pid = read_file_content(os.path.join(dev_path, "idProduct"))
 
@@ -203,7 +232,7 @@ def main() -> None:
         is_input = False
         interfaces = glob.glob(os.path.join(dev_path, "*:*.*/bInterfaceClass"))
         for iface_class_file in interfaces:
-            if read_file_content(iface_class_file) == "03": # HID
+            if read_file_content(iface_class_file) == "03":  # HID
                 is_input = True
                 break
 
@@ -215,7 +244,11 @@ def main() -> None:
             continue
 
         # Filter generic names
-        if re.search(r"HID-compliant (mouse|keyboard|device|vendor|consumer|system)", product_name, re.I):
+        if re.search(
+            r"HID-compliant (mouse|keyboard|device|vendor|consumer|system)",
+            product_name,
+            re.I,
+        ):
             continue
         if re.match(r"^USB Input Device$|^HID Keyboard Device$", product_name, re.I):
             continue
@@ -224,14 +257,18 @@ def main() -> None:
 
         # Get topology info
         info = get_usb_info(dev_path)
-        if not info or not info['controller_pci']:
+        if not info or not info["controller_pci"]:
             continue
 
-        pci_slot = info['controller_pci']
-        ctrl_info = controllers.get(pci_slot, {"name": "Unknown", "is_cpu": False}) if pci_slot else {"name": "Unknown", "is_cpu": False}
+        pci_slot = info["controller_pci"]
+        ctrl_info = (
+            controllers.get(pci_slot, {"name": "Unknown", "is_cpu": False})
+            if pci_slot
+            else {"name": "Unknown", "is_cpu": False}
+        )
 
-        is_cpu = ctrl_info['is_cpu']
-        has_hub = info['hub_count'] > 0
+        is_cpu = ctrl_info["is_cpu"]
+        has_hub = info["hub_count"] > 0
 
         # Determine Status
         status = ""
@@ -257,11 +294,13 @@ def main() -> None:
         # Controller
         ct_prefix = Colors.BEST if is_cpu else Colors.WARN
         ct_suffix = "(direct to CPU die)" if is_cpu else "(extra latency)"
-        print(f"  {Colors.TEXT}Controller: {ct_prefix}{ctrl_info['name']} {Colors.TEXT}{ct_suffix}{Colors.RESET}")
+        print(
+            f"  {Colors.TEXT}Controller: {ct_prefix}{ctrl_info['name']} {Colors.TEXT}{ct_suffix}{Colors.RESET}"
+        )
 
         # Hub
         if has_hub:
-            hub_names = ", ".join(info['hubs']) if info['hubs'] else "Yes"
+            hub_names = ", ".join(info["hubs"]) if info["hubs"] else "Yes"
             print(f"  {Colors.TEXT}Hub: {Colors.WARN}YES - {hub_names}{Colors.RESET}")
 
         # Status
@@ -272,14 +311,25 @@ def main() -> None:
 
     # Legend
     print("")
-    print(f"{Colors.HEADER}============================================================{Colors.RESET}")
+    print(
+        f"{Colors.HEADER}============================================================{Colors.RESET}"
+    )
     print("")
     print(f"{Colors.LABEL}STATUS GUIDE:{Colors.RESET}")
-    print(f"  {Colors.BEST}[BEST]        {Colors.TEXT}CPU-direct, no hub - lowest possible latency{Colors.RESET}")
-    print(f"  {Colors.WARN}[HUB]         {Colors.TEXT}CPU-direct but through a hub - try another port{Colors.RESET}")
-    print(f"  {Colors.WARN}[CHIPSET]     {Colors.TEXT}Chipset USB - move to CPU port if available{Colors.RESET}")
-    print(f"  {Colors.BAD}[CHIPSET+HUB] {Colors.TEXT}Worst path - definitely move this device{Colors.RESET}")
+    print(
+        f"  {Colors.BEST}[BEST]        {Colors.TEXT}CPU-direct, no hub - lowest possible latency{Colors.RESET}"
+    )
+    print(
+        f"  {Colors.WARN}[HUB]         {Colors.TEXT}CPU-direct but through a hub - try another port{Colors.RESET}"
+    )
+    print(
+        f"  {Colors.WARN}[CHIPSET]     {Colors.TEXT}Chipset USB - move to CPU port if available{Colors.RESET}"
+    )
+    print(
+        f"  {Colors.BAD}[CHIPSET+HUB] {Colors.TEXT}Worst path - definitely move this device{Colors.RESET}"
+    )
     print("")
+
 
 if __name__ == "__main__":
     main()
