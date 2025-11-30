@@ -338,9 +338,7 @@ def main() -> None:
             status_color = (
                 Colors.BEST
                 if status == "BEST"
-                else Colors.WARN
-                if status in ["HUB", "CHIPSET"]
-                else Colors.BAD
+                else Colors.WARN if status in ["HUB", "CHIPSET"] else Colors.BAD
             )
             print(f"  {Colors.TEXT}Status: {status_color}[{status}]{Colors.RESET}")
 
