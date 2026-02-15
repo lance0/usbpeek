@@ -5,10 +5,9 @@ import os
 import subprocess
 from typing import Any
 
-# Add the parent directory to the path to import the module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cpu_usb_check import (
+from usbpeek import (
     read_file_content,
     get_pci_name,
     is_cpu_controller,
@@ -17,7 +16,7 @@ from cpu_usb_check import (
 )
 
 
-class TestCpuUsbCheck(unittest.TestCase):
+class TestUsbPeek(unittest.TestCase):
     def test_read_file_content_success(self) -> None:
         with patch("builtins.open", mock_open(read_data="test content\n")):
             result = read_file_content("/fake/path")
@@ -62,7 +61,7 @@ class TestCpuUsbCheck(unittest.TestCase):
     @patch("os.path.realpath")
     @patch("os.path.dirname")
     @patch("os.path.basename")
-    @patch("cpu_usb_check.read_file_content")
+    @patch("usbpeek.read_file_content")
     def test_get_usb_info_no_realpath(
         self, mock_read: Any, mock_basename: Any, mock_dirname: Any, mock_realpath: Any
     ) -> None:
@@ -78,15 +77,7 @@ class TestCpuUsbCheck(unittest.TestCase):
         if result:
             self.assertEqual(result["controller_pci"], "0000:00:14.0")
 
-    @patch("cpu_usb_check.read_file_content")
-    def test_get_polling_rate_high_speed(self, mock_read: Any) -> None:
-        mock_read.side_effect = lambda p: {"bInterval": "4", "speed": "480"}.get(
-            os.path.basename(p), ""
-        )
-        result = get_polling_rate("/sys/bus/usb/devices/1-1")
-        self.assertEqual(result, 1000)
-
-    @patch("cpu_usb_check.read_file_content")
+    @patch("usbpeek.read_file_content")
     def test_get_polling_rate_high_speed(self, mock_read: Any) -> None:
         def mock_file_content(path: str, default: str = "") -> str:
             basename = os.path.basename(path)
@@ -100,7 +91,7 @@ class TestCpuUsbCheck(unittest.TestCase):
         result = get_polling_rate("/sys/bus/usb/devices/1-1")
         self.assertEqual(result, 1000)
 
-    @patch("cpu_usb_check.read_file_content")
+    @patch("usbpeek.read_file_content")
     def test_get_polling_rate_full_speed(self, mock_read: Any) -> None:
         def mock_file_content(path: str, default: str = "") -> str:
             basename = os.path.basename(path)
@@ -114,7 +105,7 @@ class TestCpuUsbCheck(unittest.TestCase):
         result = get_polling_rate("/sys/bus/usb/devices/1-1")
         self.assertEqual(result, 125)
 
-    @patch("cpu_usb_check.read_file_content")
+    @patch("usbpeek.read_file_content")
     def test_get_polling_rate_no_binterval(self, mock_read: Any) -> None:
         mock_read.return_value = ""
         result = get_polling_rate("/sys/bus/usb/devices/1-1")

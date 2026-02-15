@@ -289,7 +289,7 @@ def main(
 ) -> None:
     if version:
         try:
-            prog_version = get_version("cpu-direct-usb-linux")
+            prog_version = get_version("usbpeek")
         except Exception:
             prog_version = "1.0.0"
         typer.echo(prog_version)

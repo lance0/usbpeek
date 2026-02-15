@@ -3,20 +3,19 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cpu-direct-usb-linux"
+name = "usbpeek"
 version = "1.0.0"
-description = "A Python utility to detect whether your USB devices are connected through CPU-direct or Chipset USB ports on Linux."
+description = "A Python utility to analyze USB device latency and topology on Linux."
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [{name = "lance0"}]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -41,23 +40,16 @@ dev = [
 testpaths = ["tests"]
 
 [project.urls]
-Homepage = "https://github.com/lance0/cpu-direct-linux"
-Repository = "https://github.com/lance0/cpu-direct-linux"
-Issues = "https://github.com/lance0/cpu-direct-linux/issues"
+Homepage = "https://github.com/lance0/usbpeek"
+Repository = "https://github.com/lance0/usbpeek"
+Issues = "https://github.com/lance0/usbpeek/issues"
 
 [project.scripts]
-cpu-usb-check = "cpu_usb_check:main"
+usbpeek = "usbpeek:main"
 
 [tool.setuptools]
-packages = { find = { include = ["cpu_usb_check*"] } }
+packages = { find = { include = ["usbpeek*"] } }
 package-data = { "*" = ["README.md", "LICENSE"] }
-
-[tool.black]
-line-length = 88
-target-version = ['py38']
-
-[tool.isort]
-profile = "black"
 
 [tool.mypy]
 python_version = "3.9"

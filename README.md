@@ -1,25 +1,26 @@
-# CPU Direct USB Checker (Linux)
+# usbpeek
 
-A Python utility to detect whether your USB devices (mice, keyboards, controllers, audio gear) are connected through **CPU-direct USB ports** or **Chipset USB ports** on Linux systems.
+A Python utility to analyze USB device latency and topology on Linux.
 
-This is a Linux port of the concept and tool by **Marius Heier**.  
-Original Project: [https://tools.mariusheier.com/cpudirect.html](https://tools.mariusheier.com/cpudirect.html)
+Detect whether your USB devices are connected through CPU-direct or Chipset USB ports, and check their polling rates.
 
 ## Why does this matter?
 
 - **CPU-direct ports** connect directly to the CPU die, offering the lowest possible latency. This is critical for competitive gaming and low-latency audio.
 - **Chipset ports** route data through the motherboard chipset before reaching the CPU, adding ~1-3ms of latency.
 - **USB Hubs** (external or internal) add further latency and should be avoided for competitive input devices.
+- **Polling rate** affects how often the device reports data to the system.
 
 ## Features
 
 - Detects USB Controller type (CPU vs Chipset)
 - Detects if a device is connected through a Hub
+- Shows polling rate (125Hz, 500Hz, 1000Hz, etc.)
 - Provides a "Status" rating (BEST, HUB, CHIPSET, CHIPSET+HUB)
 - Color-coded terminal output with Rich
 - Filter by device class (HID, audio, video, wireless)
 - Filter by controller
-- JSON output for scripting
+- Multiple output formats: JSON, CSV, Table
 - Summary view for quick overview
 - Shell completion support
 
@@ -27,13 +28,13 @@ Original Project: [https://tools.mariusheier.com/cpudirect.html](https://tools.m
 
 ### From PyPI
 ```bash
-pip install cpu-direct-usb-linux
+pip install usbpeek
 ```
 
 ### From Source
 ```bash
-git clone https://github.com/lance0/cpu-direct-linux.git
-cd cpu-direct-linux
+git clone https://github.com/lance0/usbpeek.git
+cd usbpeek
 uv sync
 ```
 
@@ -57,7 +58,7 @@ sudo dnf install pciutils
 ## Usage
 
 ```bash
-cpu-usb-check
+usbpeek
 ```
 
 ### Options
@@ -66,13 +67,18 @@ cpu-usb-check
 |--------|-------|-------------|
 | `--no-color` | | Disable colored output |
 | `--json` | | Output in JSON format |
+| `--csv` | | Output in CSV format |
+| `--table` | | Output in table format |
+| `--format` | `-f` | Output format: json, csv, table |
 | `--only-best` | | Show only devices with BEST status |
 | `--show-all` | | Show all USB device classes |
 | `--device-class` | `-d` | Filter by device class (hid, audio, video, wireless) |
 | `--controller` | `-c` | Filter by controller name (partial match) |
 | `--quiet` | `-q` | Suppress non-essential output |
 | `--summary` | | Show device count summary |
-| `--output` | `-o` | Write JSON output to file |
+| `--output` | `-o` | Write output to file |
+| `--show-polling-rate` | | Show polling rate for each device |
+| `--polling-rate-only` | | Show only devices with non-default rates |
 | `--verbose` | `-v` | Show verbose debug info |
 | `--version` | | Show version |
 | `--install-completion` | | Install shell completion |
@@ -81,63 +87,53 @@ cpu-usb-check
 
 Show all devices:
 ```bash
-cpu-usb-check
+usbpeek
 ```
 
 Show only BEST devices:
 ```bash
-cpu-usb-check --only-best
+usbpeek --only-best
+```
+
+Show polling rates:
+```bash
+usbpeek --show-polling-rate
+```
+
+Show only high-polling-rate devices:
+```bash
+usbpeek --polling-rate-only
 ```
 
 Show only audio devices:
 ```bash
-cpu-usb-check --device-class audio
-```
-
-Show devices on a specific controller:
-```bash
-cpu-usb-check --controller amd
+usbpeek --device-class audio
 ```
 
 Show summary:
 ```bash
-cpu-usb-check --summary
+usbpeek --summary
 ```
 
 JSON output for scripting:
 ```bash
-cpu-usb-check --json > output.json
-```
-
-Save JSON to file:
-```bash
-cpu-usb-check --json --output devices.json
-```
-
-Suppress headers:
-```bash
-cpu-usb-check --quiet --only-best
+usbpeek --json > output.json
 ```
 
 ## Example Output
 
 ```text
 CONTROLLERS
-  [CPU]      Advanced Micro Devices, Inc. [AMD] Device 14c9
-  [Chipset]  ASMedia Technology Inc. ASM3242 USB 3.2 Host Controller
+  [CPU]      AMD Device 14c9
+  [Chipset]  ASMedia ASM3242 USB 3.2 Host Controller
 
 DEVICES
 
   Razer DeathAdder V3
   VID:PID 1532:00B2
-  Controller: Advanced Micro Devices, Inc. [AMD] Device 14c9 (direct to CPU die)
+  Controller: AMD Device 14c9 (direct to CPU die)
+  Polling Rate: 1000 Hz
   Status: [BEST]
-
-  Keychron Q1
-  VID:PID 3434:0240
-  Controller: ASMedia Technology Inc. ASM3242 USB 3.2 Host Controller (extra latency)
-  Hub: YES - Hub Name
-  Status: [HUB]
 
 ============================================================
 
@@ -148,39 +144,11 @@ STATUS GUIDE:
   [CHIPSET+HUB] Worst path - definitely move this device
 ```
 
-### Summary Output
-```text
-Summary:
-  BEST:        2
-  HUB:         1
-  CHIPSET:     0
-  CHIPSET+HUB: 0
-  Total:       3
-```
-
-## JSON Output
-
-```json
-{
-  "controllers": [
-    {"name": "AMD Device 14c9", "type": "CPU"}
-  ],
-  "devices": [
-    {
-      "name": "Razer DeathAdder V3",
-      "vid_pid": "1532:00B3",
-      "controller": "AMD Device 14c9",
-      "controller_type": "CPU",
-      "status": "BEST",
-      "hubs": []
-    }
-  ]
-}
-```
-
 ## How it works
 
-The script uses `lspci` to enumerate USB controllers and reads `/sys/bus/usb/devices/` to map physical devices to their parent PCI controllers. It distinguishes CPU vs Chipset controllers based on PCI device naming patterns (AMD XHCI, Intel XHCI are CPU-direct; ASMedia, VIA, NEC are chipset).
+The tool uses `lspci` to enumerate USB controllers and reads `/sys/bus/usb/devices/` to map physical devices to their parent PCI controllers. It distinguishes CPU vs Chipset controllers based on PCI device naming patterns.
+
+Polling rate is read from the USB device's `bInterval` descriptor and converted to Hz based on the device's speed (Full Speed, High Speed, etc.).
 
 ## Shell Completion
 
@@ -188,13 +156,13 @@ Install shell completion for your shell:
 
 ```bash
 # Bash
-cpu-usb-check --install-completion bash
+usbpeek --install-completion bash
 
 # Zsh
-cpu-usb-check --install-completion zsh
+usbpeek --install-completion zsh
 
 # Fish
-cpu-usb-check --install-completion fish
+usbpeek --install-completion fish
 ```
 
 ## Development
