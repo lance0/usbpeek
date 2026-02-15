@@ -93,7 +93,13 @@ def read_file_content(path: str, default: str = "") -> str:
     try:
         with open(path, "r") as f:
             return f.read().strip()
-    except (FileNotFoundError, PermissionError, OSError):
+    except FileNotFoundError:
+        return default
+    except PermissionError:
+        return default
+    except OSError:
+        return default
+    except UnicodeDecodeError:
         return default
 
 
@@ -130,16 +136,51 @@ def is_cpu_controller(pci_name: str, pci_slot: str, force_cpu: bool = False) -> 
         return True
     if "intel" in name_lower and ("xhci" in name_lower or "usb" in name_lower):
         return True
+    if "intel" in name_lower and "usb 3.2" in name_lower:
+        return True
+    if "amd" in name_lower and "usb 3.0" in name_lower:
+        return True
+    if "renesas" in name_lower and "xhc" in name_lower:
+        return True
 
-    # Strong indicators of Chipset/External
-    if "chipset" in name_lower:
-        return False
-    if "asmedia" in name_lower:
-        return False
-    if "via" in name_lower or "nec" in name_lower:
-        return False
-    if "promontory" in name_lower:
-        return False
+    # Strong indicators of Chipset/External controllers
+    chipset_patterns = [
+        "asmedia",
+        "via",
+        "nec",
+        "promontory",
+        "chipset",
+        "fresco",
+        "fl1000",
+        "vl805",
+        "uシリアル",
+        "elogic",
+        "pcie",
+        "muc",
+        "upl",
+        "usb2512",
+        "usb2514",
+        "usb2515",
+        "usb3.0",
+        "usb 3.0",
+        "usb 2.0",
+        "usb2.0",
+        "usb3.1",
+        "usb 3.1",
+        "usb3.2",
+        "usb 3.2",
+        "xhci",
+    ]
+
+    # Check if any chipset pattern is in the name (but not if it's CPU-direct)
+    is_chipsets = any(pattern in name_lower for pattern in chipset_patterns)
+    if is_chipsets:
+        # Double check it's not actually CPU-direct
+        if "amd" in name_lower or "intel" in name_lower:
+            # AMD/Intel with USB in name is usually CPU-direct
+            pass
+        else:
+            return False
 
     # Default to False (unknown - assume Chipset for safety)
     return False
@@ -323,6 +364,20 @@ def main(
         != 0
     ):
         error_msg = "lspci command not found. Please install pciutils (e.g., sudo apt install pciutils)."
+        if csv_output:
+            print("error,message")
+            print(f'1,"{error_msg}"')
+        elif json_output:
+            print(json.dumps({"error": error_msg}))
+        else:
+            console.print(f"[bold red]Error: {error_msg}[/]")
+        raise typer.Exit(1)
+
+    # Check if sysfs is available
+    if not os.path.isdir("/sys/bus/usb/devices"):
+        error_msg = (
+            "sysfs not available. This tool requires a Linux system with sysfs mounted."
+        )
         if csv_output:
             print("error,message")
             print(f'1,"{error_msg}"')
