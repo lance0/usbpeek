@@ -1,53 +1,48 @@
 # CPU Direct USB Checker (Linux)
 
-A Python utility to detect whether your USB devices (mice, keyboards, controllers) are connected through **CPU-direct USB ports** or **Chipset USB ports** on Linux systems.
+A Python utility to detect whether your USB devices (mice, keyboards, controllers, audio gear) are connected through **CPU-direct USB ports** or **Chipset USB ports** on Linux systems.
 
 This is a Linux port of the concept and tool by **Marius Heier**.  
 Original Project: [https://tools.mariusheier.com/cpudirect.html](https://tools.mariusheier.com/cpudirect.html)
 
 ## Why does this matter?
-- **CPU-direct ports** connect directly to the CPU die, offering the lowest possible latency. This is preferred for high-performance gaming peripherals.
-- **Chipset ports** route data through the motherboard chipset before reaching the CPU, adding a small amount of latency.
+
+- **CPU-direct ports** connect directly to the CPU die, offering the lowest possible latency. This is critical for competitive gaming and low-latency audio.
+- **Chipset ports** route data through the motherboard chipset before reaching the CPU, adding ~1-3ms of latency.
 - **USB Hubs** (external or internal) add further latency and should be avoided for competitive input devices.
 
 ## Features
-- Detects USB Controller type (CPU vs Chipset).
-- Detects if a device is connected through a Hub.
-- Provides a "Status" rating (BEST, HUB, CHIPSET, BAD).
-- Color-coded terminal output.
 
-## Prerequisites
-- Linux
-- Python 3.8+
-- `pciutils` (provides the `lspci` command)
-- `typer` and `rich` (installed automatically)
+- Detects USB Controller type (CPU vs Chipset)
+- Detects if a device is connected through a Hub
+- Provides a "Status" rating (BEST, HUB, CHIPSET, CHIPSET+HUB)
+- Color-coded terminal output with Rich
+- Filter by device class (HID, audio, video, wireless)
+- Filter by controller
+- JSON output for scripting
+- Summary view for quick overview
+- Shell completion support
 
 ## Installation
 
-### From PyPI (Recommended)
+### From PyPI
 ```bash
 pip install cpu-direct-usb-linux
 ```
 
 ### From Source
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/lance0/cpu-direct-linux.git
-    cd cpu-direct-linux
-    ```
-
-2. Install with uv (recommended):
-    ```bash
-    uv sync
-    ```
-
-   Or with pip:
-    ```bash
-    pip install .
-    ```
+```bash
+git clone https://github.com/lance0/cpu-direct-linux.git
+cd cpu-direct-linux
+uv sync
+```
 
 ### System Requirements
-Ensure `lspci` is installed (part of pciutils):
+
+- Linux
+- Python 3.9+
+- `pciutils` (provides `lspci`)
+
 ```bash
 # Debian/Ubuntu
 sudo apt install pciutils
@@ -61,62 +56,81 @@ sudo dnf install pciutils
 
 ## Usage
 
-After installation, run the command:
-
 ```bash
 cpu-usb-check
 ```
 
-Or run the script directly from source:
+### Options
 
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--no-color` | | Disable colored output |
+| `--json` | | Output in JSON format |
+| `--only-best` | | Show only devices with BEST status |
+| `--show-all` | | Show all USB device classes |
+| `--device-class` | `-d` | Filter by device class (hid, audio, video, wireless) |
+| `--controller` | `-c` | Filter by controller name (partial match) |
+| `--quiet` | `-q` | Suppress non-essential output |
+| `--summary` | | Show device count summary |
+| `--output` | `-o` | Write JSON output to file |
+| `--verbose` | `-v` | Show verbose debug info |
+| `--version` | | Show version |
+| `--install-completion` | | Install shell completion |
+
+### Examples
+
+Show all devices:
 ```bash
-python3 cpu_usb_check.py
+cpu-usb-check
 ```
 
-To disable colors:
-
+Show only BEST devices:
 ```bash
-cpu-usb-check --no-color
+cpu-usb-check --only-best
 ```
 
-For JSON output (useful for scripting):
-
+Show only audio devices:
 ```bash
-cpu-usb-check --json
+cpu-usb-check --device-class audio
 ```
 
-Example JSON output:
-```json
-{
-  "controllers": [
-    {"name": "Controller Name", "type": "CPU"}
-  ],
-  "devices": [
-    {
-      "name": "Device Name",
-      "vid_pid": "1234:5678",
-      "controller": "Controller Name",
-      "controller_type": "CPU",
-      "status": "BEST",
-      "hubs": []
-    }
-  ]
-}
+Show devices on a specific controller:
+```bash
+cpu-usb-check --controller amd
+```
+
+Show summary:
+```bash
+cpu-usb-check --summary
+```
+
+JSON output for scripting:
+```bash
+cpu-usb-check --json > output.json
+```
+
+Save JSON to file:
+```bash
+cpu-usb-check --json --output devices.json
+```
+
+Suppress headers:
+```bash
+cpu-usb-check --quiet --only-best
 ```
 
 ## Example Output
 
 ```text
 CONTROLLERS
-  [CPU]      Advanced Micro Devices, Inc. [AMD] Device 14c9 (rev da)
+  [CPU]      Advanced Micro Devices, Inc. [AMD] Device 14c9
   [Chipset]  ASMedia Technology Inc. ASM3242 USB 3.2 Host Controller
 
-INPUT DEVICES
+DEVICES
 
   Razer DeathAdder V3
   VID:PID 1532:00B2
   Controller: Advanced Micro Devices, Inc. [AMD] Device 14c9 (direct to CPU die)
-  Hub: NO
   Status: [BEST]
 
   Keychron Q1
@@ -134,22 +148,68 @@ STATUS GUIDE:
   [CHIPSET+HUB] Worst path - definitely move this device
 ```
 
+### Summary Output
+```text
+Summary:
+  BEST:        2
+  HUB:         1
+  CHIPSET:     0
+  CHIPSET+HUB: 0
+  Total:       3
+```
+
+## JSON Output
+
+```json
+{
+  "controllers": [
+    {"name": "AMD Device 14c9", "type": "CPU"}
+  ],
+  "devices": [
+    {
+      "name": "Razer DeathAdder V3",
+      "vid_pid": "1532:00B3",
+      "controller": "AMD Device 14c9",
+      "controller_type": "CPU",
+      "status": "BEST",
+      "hubs": []
+    }
+  ]
+}
+```
+
 ## How it works
-The script uses `lspci` to list USB controllers and analyzes `/sys/bus/usb/devices/` to map physical devices to their parent PCI controllers. It attempts to distinguish CPU vs Chipset controllers based on PCI device names and hierarchy heuristics.
+
+The script uses `lspci` to enumerate USB controllers and reads `/sys/bus/usb/devices/` to map physical devices to their parent PCI controllers. It distinguishes CPU vs Chipset controllers based on PCI device naming patterns (AMD XHCI, Intel XHCI are CPU-direct; ASMedia, VIA, NEC are chipset).
+
+## Shell Completion
+
+Install shell completion for your shell:
+
+```bash
+# Bash
+cpu-usb-check --install-completion bash
+
+# Zsh
+cpu-usb-check --install-completion zsh
+
+# Fish
+cpu-usb-check --install-completion fish
+```
 
 ## Development
 
-### Running Tests
 ```bash
+# Run tests
 uv run pytest
-```
 
-### Linting & Type Checking
-This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and [mypy](https://mypy.readthedocs.io/) for type checking.
-```bash
+# Lint
 uvx ruff check
+
+# Type check
 uvx mypy
 ```
 
 ## License
+
 MIT License
