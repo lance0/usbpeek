@@ -4,16 +4,35 @@
 # Based on the tool by Marius Heier: https://tools.mariusheier.com/cpudirect.html
 #
 import os
-import sys
 import subprocess
 import glob
 import re
-import argparse
 import json
-from typing import Any, Dict, List, Optional, Union, TypedDict, cast
+from importlib.metadata import version as get_version
+from typing import Any, Dict, List, Optional, TypedDict, cast
+
+import typer
+from rich.console import Console
 
 
 # Type definitions
+USB_CLASS_HID = "03"
+USB_CLASS_HUB = "09"
+USB_CLASS_CONTROLLER = "0c03"
+USB_CLASS_AUDIO = "01"
+USB_CLASS_VIDEO = "0e"
+USB_CLASS_WIRELESS = "e0"
+
+DEVICE_CLASSES = (USB_CLASS_HID, USB_CLASS_AUDIO, USB_CLASS_VIDEO)
+
+PCI_SLOT_PATTERN = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
+USB_DEVICE_PATTERN = re.compile(r"^\d+-\d+(\.\d+)*$")
+HID_NAME_FILTER = re.compile(
+    r"HID-compliant (mouse|keyboard|device|vendor|consumer|system)", re.I
+)
+GENERIC_NAME_FILTER = re.compile(r"^USB Input Device$|^HID Keyboard Device$", re.I)
+
+
 class ControllerInfo(TypedDict):
     name: str
     type: str
@@ -74,13 +93,9 @@ def get_pci_name(pci_slot: str) -> str:
     """
     try:
         # lspci -s 05:00.4
-        output = (
-            subprocess.check_output(
-                ["lspci", "-s", pci_slot], stderr=subprocess.DEVNULL
-            )
-            .decode()
-            .strip()
-        )
+        output = subprocess.check_output(
+            ["lspci", "-s", pci_slot], stderr=subprocess.DEVNULL, encoding="utf-8"
+        ).strip()
         # Output ex: 05:00.4 USB controller: Advanced Micro Devices, Inc. [AMD] Device 14c9 (rev da)
         # We want the part after "USB controller: "
         if "USB controller:" in output:
@@ -90,23 +105,34 @@ def get_pci_name(pci_slot: str) -> str:
         return f"Unknown Controller [{pci_slot}]"
 
 
-def is_cpu_controller(pci_name: str, pci_slot: str) -> bool:
+def is_cpu_controller(pci_name: str, pci_slot: str, force_cpu: bool = False) -> bool:
     """
     Heuristic to determine if a controller is CPU-direct or Chipset.
     Based on common naming patterns.
     """
+    if force_cpu:
+        return True
+
     name_lower = pci_name.lower()
+
+    # Strong indicators of CPU-direct (AMD/Intel naming patterns)
+    if "amd" in name_lower and ("usb" in name_lower or "xhc" in name_lower):
+        return True
+    if "intel" in name_lower and ("xhci" in name_lower or "usb" in name_lower):
+        return True
 
     # Strong indicators of Chipset/External
     if "chipset" in name_lower:
         return False
     if "asmedia" in name_lower:
-        return False  # ASMedia is often the chipset or aux controller on AMD boards
+        return False
     if "via" in name_lower or "nec" in name_lower:
-        return False  # Add-in cards
+        return False
+    if "promontory" in name_lower:
+        return False
 
-    # Default to True (CPU) for generic AMD/Intel controllers not marked as Chipset
-    return True
+    # Default to False (unknown - assume Chipset for safety)
+    return False
 
 
 def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
@@ -130,14 +156,14 @@ def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
         base = os.path.basename(curr)
 
         # Check if we hit the PCI device (directory name pattern HHHH:BB:DD.F)
-        if re.match(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$", base):
+        if PCI_SLOT_PATTERN.match(base):
             controller_pci = base
             break
 
         if base.startswith("usb") and base[3:].isdigit():
             # This is the root hub (e.g. usb3), pass through to parent
             pass
-        elif re.match(r"^\d+-\d+(\.\d+)*$", base):
+        elif USB_DEVICE_PATTERN.match(base):
             # This is a USB device/hub in the chain.
             # If it's not the device itself (which we started with), it's a hub.
             if curr != real_path:
@@ -154,20 +180,35 @@ def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
     return {"controller_pci": controller_pci, "hub_count": hub_count, "hubs": hubs}
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Check USB device connection path (CPU vs Chipset)."
-    )
-    parser.add_argument(
-        "--no-color", action="store_true", help="Disable colored output"
-    )
-    parser.add_argument("--json", action="store_true", help="Output in JSON format")
-    args = parser.parse_args()
+app = typer.Typer(help="Check USB device connection path (CPU vs Chipset).")
+console = Console()
 
-    if args.no_color or args.json:
+
+def main(
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output"),
+    json_output: bool = typer.Option(False, "--json", help="Output in JSON format"),
+    only_best: bool = typer.Option(
+        False, "--only-best", help="Show only devices with BEST status"
+    ),
+    verbose: bool = typer.Option(
+        False, "-v", "--verbose", help="Show verbose debug info"
+    ),
+    version: bool = typer.Option(False, "--version", help="Show version"),
+) -> None:
+    if version:
+        try:
+            prog_version = get_version("cpu-direct-usb-linux")
+        except Exception:
+            prog_version = "1.0.0"
+        typer.echo(prog_version)
+        raise typer.Exit()
+
+    if no_color or json_output:
         Colors.disable()
+        console = Console(force_terminal=False)
+    else:
+        console = Console()
 
-    # Check for lspci
     if (
         subprocess.call(
             ["which", "lspci"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -175,29 +216,26 @@ def main() -> None:
         != 0
     ):
         error_msg = "Error: 'lspci' command not found. Please install pciutils (e.g., sudo apt install pciutils)."
-        if args.json:
+        if json_output:
             print(json.dumps({"error": error_msg}))
         else:
-            print(f"{Colors.BAD}{error_msg}{Colors.RESET}")
-        sys.exit(1)
+            console.print(f"[bold red]{error_msg}[/]")
+        raise typer.Exit(1)
 
-    controllers: Dict[str, Dict[str, Any]] = {}  # slot -> info
+    controllers: Dict[str, Dict[str, Any]] = {}
     data: OutputData = {"controllers": [], "devices": [], "error": None}
 
     try:
-        # Get all USB controllers via lspci
-        lspci_out = (
-            subprocess.check_output(["lspci", "-nn"], stderr=subprocess.DEVNULL)
-            .decode()
-            .splitlines()
-        )
+        lspci_out = subprocess.check_output(
+            ["lspci", "-nn"], stderr=subprocess.DEVNULL, encoding="utf-8"
+        ).splitlines()
         for line in lspci_out:
-            # Look for Class 0c03 (USB)
-            if "USB controller" in line or "0c03" in line:
+            if "USB controller" in line or USB_CLASS_CONTROLLER in line:
                 parts = line.split(" ", 1)
+                if len(parts) < 2:
+                    continue
                 slot = parts[0]
 
-                # Check if it exists in sysfs
                 sys_matches = glob.glob(f"/sys/bus/pci/devices/*{slot}")
                 if sys_matches:
                     full_slot = os.path.basename(sys_matches[0])
@@ -213,34 +251,28 @@ def main() -> None:
                         )
                     )
 
-                    if not args.json:
+                    if not json_output:
                         prefix = (
-                            f"{Colors.BEST}[CPU]    "
-                            if is_cpu
-                            else f"{Colors.TEXT}[Chipset]"
+                            "[green][CPU][/]    " if is_cpu else "[dim][Chipset][/]"
                         )
-                        print(f"  {prefix} {Colors.VALUE}{name}{Colors.RESET}")
+                        console.print(f"  {prefix} [white]{name}[/]")
 
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
-        if args.json:
+        if json_output:
             data["error"] = f"Error scanning controllers: {e}"
         else:
-            print(f"{Colors.BAD}Error scanning controllers: {e}{Colors.RESET}")
+            console.print(f"[bold red]Error scanning controllers: {e}[/]")
 
-    # 2. Input Devices
-    if not args.json:
-        print("")
-        print(f"{Colors.LABEL}INPUT DEVICES{Colors.RESET}")
+    if not json_output:
+        console.print("")
 
     found_any = False
 
-    # Scan /sys/bus/usb/devices/
     usb_devices = glob.glob("/sys/bus/usb/devices/*")
 
     for dev_path in usb_devices:
         base = os.path.basename(dev_path)
-        # Skip root hubs (usbX) and interfaces (1-1:1.0)
-        if ":" in base or not "-" in base:
+        if ":" in base or "-" not in base:
             continue
 
         product_name = read_file_content(
@@ -252,34 +284,26 @@ def main() -> None:
         if not vid or not pid:
             continue
 
-        # Check if HID (Class 03)
-        is_input = False
+        is_supported_device = False
+        device_classes: List[str] = []
         interfaces = glob.glob(os.path.join(dev_path, "*:*.*/bInterfaceClass"))
         for iface_class_file in interfaces:
-            if read_file_content(iface_class_file) == "03":  # HID
-                is_input = True
-                break
+            class_code = read_file_content(iface_class_file)
+            if class_code in DEVICE_CLASSES:
+                is_supported_device = True
+                device_classes.append(class_code)
 
-        # Skip Hubs (Class 09) from the device list
-        if read_file_content(os.path.join(dev_path, "bDeviceClass")) == "09":
+        if read_file_content(os.path.join(dev_path, "bDeviceClass")) == USB_CLASS_HUB:
             continue
 
-        if not is_input:
-            continue
-
-        # Filter generic names
-        if re.search(
-            r"HID-compliant (mouse|keyboard|device|vendor|consumer|system)",
-            product_name,
-            re.I,
-        ):
-            continue
-        if re.match(r"^USB Input Device$|^HID Keyboard Device$", product_name, re.I):
+        if not is_supported_device:
+            if verbose:
+                dev_class = read_file_content(os.path.join(dev_path, "bDeviceClass"))
+                console.print(f"  [dim]Skipping {product_name} (class {dev_class})[/]")
             continue
 
         found_any = True
 
-        # Get topology info
         info = get_usb_info(dev_path)
         if not info or not info["controller_pci"]:
             continue
@@ -294,7 +318,6 @@ def main() -> None:
         is_cpu = ctrl_info["is_cpu"]
         has_hub = info["hub_count"] > 0
 
-        # Determine Status
         if is_cpu and not has_hub:
             status = "BEST"
         elif is_cpu and has_hub:
@@ -303,6 +326,9 @@ def main() -> None:
             status = "CHIPSET"
         else:
             status = "CHIPSET+HUB"
+
+        if only_best and status != "BEST":
+            continue
 
         device_data = {
             "name": product_name,
@@ -314,81 +340,57 @@ def main() -> None:
         }
         data["devices"].append(cast(DeviceInfo, device_data))
 
-        if not args.json:
-            print("")
-            print(f"  {Colors.VALUE}{product_name}{Colors.RESET}")
-            print(f"  {Colors.TEXT}VID:PID {vid}:{pid}{Colors.RESET}")
+        if not json_output:
+            console.print("")
+            console.print(f"  [white]{product_name}[/]")
+            console.print(f"  [dim]VID:PID {vid}:{pid}[/]")
 
-            # Controller
-            ct_prefix = Colors.BEST if is_cpu else Colors.WARN
+            ct_prefix = "green" if is_cpu else "yellow"
             ct_suffix = "(direct to CPU die)" if is_cpu else "(extra latency)"
-            print(
-                f"  {Colors.TEXT}Controller: {ct_prefix}{ctrl_info['name']} {Colors.TEXT}{ct_suffix}{Colors.RESET}"
+            console.print(
+                f"  [dim]Controller: [{ct_prefix}]{ctrl_info['name']}[/] [dim]{ct_suffix}[/]"
             )
 
-        if not args.json:
-            # Hub
             if has_hub:
                 hub_names = ", ".join(info["hubs"]) if info["hubs"] else "Yes"
-                print(
-                    f"  {Colors.TEXT}Hub: {Colors.WARN}YES - {hub_names}{Colors.RESET}"
-                )
+                console.print(f"  [dim]Hub: [yellow]YES - {hub_names}[/]")
 
-            # Status
             status_color = (
-                Colors.BEST
+                "green"
                 if status == "BEST"
-                else Colors.WARN if status in ["HUB", "CHIPSET"] else Colors.BAD
+                else "yellow"
+                if status in ["HUB", "CHIPSET"]
+                else "red"
             )
-            print(f"  {Colors.TEXT}Status: {status_color}[{status}]{Colors.RESET}")
+            console.print(f"  [dim]Status: [{status_color}][{status}][/]")
 
-    if not args.json:
+    if not json_output:
         if not found_any:
-            print(f"\n  {Colors.TEXT}No USB input devices found.{Colors.RESET}")
+            console.print("\n  [dim]No supported USB devices found.[/]")
 
-        # Legend
-        print("")
-        print(
-            f"{Colors.HEADER}============================================================{Colors.RESET}"
+        console.print("")
+        console.print(
+            "[cyan]============================================================[/]"
         )
-        print("")
-        print(f"{Colors.LABEL}STATUS GUIDE:{Colors.RESET}")
-        print(
-            f"  {Colors.BEST}[BEST]        {Colors.TEXT}CPU-direct, no hub - lowest possible latency{Colors.RESET}"
+        console.print("")
+        console.print("[bold yellow]STATUS GUIDE:[/]")
+        console.print(
+            "  [green][BEST]        [/][dim]CPU-direct, no hub - lowest possible latency[/]"
         )
-        print(
-            f"  {Colors.WARN}[HUB]         {Colors.TEXT}CPU-direct but through a hub - try another port{Colors.RESET}"
+        console.print(
+            "  [yellow][HUB]         [/][dim]CPU-direct but through a hub - try another port[/]"
         )
-        print(
-            f"  {Colors.WARN}[CHIPSET]     {Colors.TEXT}Chipset USB - move to CPU port if available{Colors.RESET}"
+        console.print(
+            "  [yellow][CHIPSET]     [/][dim]Chipset USB - move to CPU port if available[/]"
         )
-        print(
-            f"  {Colors.BAD}[CHIPSET+HUB] {Colors.TEXT}Worst path - definitely move this device{Colors.RESET}"
+        console.print(
+            "  [red][CHIPSET+HUB] [/][dim]Worst path - definitely move this device[/]"
         )
-        print("")
+        console.print("")
 
-    # Output JSON if requested
-    if args.json:
+    if json_output:
         print(json.dumps(data, indent=2))
-    print(
-        f"{Colors.HEADER}============================================================{Colors.RESET}"
-    )
-    print("")
-    print(f"{Colors.LABEL}STATUS GUIDE:{Colors.RESET}")
-    print(
-        f"  {Colors.BEST}[BEST]        {Colors.TEXT}CPU-direct, no hub - lowest possible latency{Colors.RESET}"
-    )
-    print(
-        f"  {Colors.WARN}[HUB]         {Colors.TEXT}CPU-direct but through a hub - try another port{Colors.RESET}"
-    )
-    print(
-        f"  {Colors.WARN}[CHIPSET]     {Colors.TEXT}Chipset USB - move to CPU port if available{Colors.RESET}"
-    )
-    print(
-        f"  {Colors.BAD}[CHIPSET+HUB] {Colors.TEXT}Worst path - definitely move this device{Colors.RESET}"
-    )
-    print("")
 
 
 if __name__ == "__main__":
-    main()
+    app()

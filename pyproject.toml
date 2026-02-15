@@ -25,7 +25,10 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: System :: Hardware",
 ]
-dependencies = []
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/lance0/cpu-direct-linux"
@@ -36,7 +39,7 @@ Issues = "https://github.com/lance0/cpu-direct-linux/issues"
 cpu-usb-check = "cpu_usb_check:main"
 
 [tool.setuptools]
-packages = ["."]
+packages = { find = { include = ["cpu_usb_check*"] } }
 
 [tool.setuptools.package-data]
 "" = ["README.md", "LICENSE"]
@@ -54,3 +57,4 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
+ignore_missing_imports = true
