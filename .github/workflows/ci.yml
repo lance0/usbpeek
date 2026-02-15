@@ -27,7 +27,7 @@ jobs:
         uv run pytest -v
     - name: Run type checking
       run: |
-        uv run mypy cpu_usb_check.py tests/test_cpu_usb_check.py
+        uv run mypy usbpeek.py tests/test_usbpeek.py
     - name: Run linting
       run: |
-        uv run ruff check cpu_usb_check.py tests/test_cpu_usb_check.py
+        uv run ruff check usbpeek.py tests/test_usbpeek.py
