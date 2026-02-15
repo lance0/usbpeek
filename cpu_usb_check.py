@@ -54,6 +54,7 @@ class DeviceInfo(TypedDict):
     controller_type: str
     status: str
     hubs: List[str]
+    polling_rate: Optional[int]
 
 
 class OutputData(TypedDict):
@@ -189,6 +190,45 @@ def get_usb_info(sys_path: str) -> Optional[Dict[str, Any]]:
     return {"controller_pci": controller_pci, "hub_count": hub_count, "hubs": hubs}
 
 
+def get_polling_rate(sys_path: str) -> Optional[int]:
+    """
+    Get the USB polling rate for a device.
+
+    Reads bInterval from the USB descriptor and converts to Hz.
+    """
+    binterval_path = os.path.join(sys_path, "bInterval")
+    interval_val = read_file_content(binterval_path)
+
+    if not interval_val:
+        return None
+
+    try:
+        binterval = int(interval_val)
+    except ValueError:
+        return None
+
+    if binterval == 0:
+        return None
+
+    speed_path = os.path.join(sys_path, "speed")
+    speed = read_file_content(speed_path, "unknown")
+
+    if speed in ("1.5", "low"):
+        return int(1000 / binterval)
+    elif speed in ("12", "full"):
+        return int(1000 / binterval)
+    elif speed in ("480", "high"):
+        if binterval >= 1:
+            interval_ms = (2 ** (binterval - 1)) * 0.125
+            return int(1000 / interval_ms)
+    elif speed in ("5000", "5000", "super", "super-speed"):
+        if binterval >= 1:
+            interval_ms = (2 ** (binterval - 1)) * 0.125
+            return int(1000 / interval_ms)
+
+    return int(1000 / binterval)
+
+
 app = typer.Typer(help="Check USB device connection path (CPU vs Chipset).")
 console = Console()
 
@@ -236,6 +276,14 @@ def main(
         "--controller",
         "-c",
         help="Show only devices on a specific controller (partial name match)",
+    ),
+    show_polling_rate: bool = typer.Option(
+        False, "--show-polling-rate", help="Show polling rate for each device"
+    ),
+    polling_rate_only: bool = typer.Option(
+        False,
+        "--polling-rate-only",
+        help="Show only devices with non-default polling rates",
     ),
     version: bool = typer.Option(False, "--version", help="Show version"),
 ) -> None:
@@ -423,6 +471,17 @@ def main(
         if only_best and status != "BEST":
             continue
 
+        polling_rate = None
+        if show_polling_rate or polling_rate_only:
+            polling_rate = get_polling_rate(dev_path)
+
+        if polling_rate_only and (polling_rate is None or polling_rate == 125):
+            if verbose:
+                console.print(
+                    f"  [dim]Skipping {product_name} (default polling rate)[/]"
+                )
+            continue
+
         device_data = {
             "name": product_name,
             "vid_pid": f"{vid}:{pid}",
@@ -430,6 +489,7 @@ def main(
             "controller_type": "CPU" if is_cpu else "Chipset",
             "status": status,
             "hubs": info["hubs"] if has_hub else [],
+            "polling_rate": polling_rate,
         }
         data["devices"].append(cast(DeviceInfo, device_data))
 
@@ -459,6 +519,9 @@ def main(
                 else "red"
             )
             console.print(f"  [dim]Status: [{status_color}][{status}][/]")
+
+            if show_polling_rate and polling_rate:
+                console.print(f"  [dim]Polling Rate: {polling_rate} Hz[/]")
 
     # Calculate summary
     status_counts: Dict[str, int] = {
@@ -518,7 +581,15 @@ def main(
         csv_buffer = io.StringIO()
         csv_writer = csv.writer(csv_buffer)
         csv_writer.writerow(
-            ["Name", "VID:PID", "Controller", "Controller Type", "Status", "Hubs"]
+            [
+                "Name",
+                "VID:PID",
+                "Controller",
+                "Controller Type",
+                "Status",
+                "Polling Rate (Hz)",
+                "Hubs",
+            ]
         )
         for dev in data["devices"]:
             csv_writer.writerow(
@@ -528,6 +599,7 @@ def main(
                     dev["controller"],
                     dev["controller_type"],
                     dev["status"],
+                    dev.get("polling_rate") or "",
                     ", ".join(dev["hubs"]) if dev["hubs"] else "",
                 ]
             )
@@ -545,6 +617,7 @@ def main(
         table.add_column("VID:PID", style="dim")
         table.add_column("Controller", style="cyan")
         table.add_column("Status", style="green")
+        table.add_column("Polling Rate", style="magenta")
         table.add_column("Hubs", style="yellow")
 
         for dev in data["devices"]:
@@ -555,6 +628,9 @@ def main(
                 if dev["status"] in ["HUB", "CHIPSET"]
                 else "red"
             )
+            polling_rate_str = (
+                f"{dev.get('polling_rate', 0)} Hz" if dev.get("polling_rate") else "-"
+            )
             table.add_row(
                 dev["name"],
                 dev["vid_pid"],
@@ -562,6 +638,7 @@ def main(
                 if len(dev["controller"]) > 40
                 else dev["controller"],
                 f"[{status_style}]{dev['status']}[/{status_style}]",
+                polling_rate_str,
                 ", ".join(dev["hubs"]) if dev["hubs"] else "-",
             )
         console.print(table)

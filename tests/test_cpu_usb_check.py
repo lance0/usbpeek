@@ -13,6 +13,7 @@ from cpu_usb_check import (
     get_pci_name,
     is_cpu_controller,
     get_usb_info,
+    get_polling_rate,
 )
 
 
@@ -76,6 +77,48 @@ class TestCpuUsbCheck(unittest.TestCase):
         self.assertIsNotNone(result)
         if result:
             self.assertEqual(result["controller_pci"], "0000:00:14.0")
+
+    @patch("cpu_usb_check.read_file_content")
+    def test_get_polling_rate_high_speed(self, mock_read: Any) -> None:
+        mock_read.side_effect = lambda p: {"bInterval": "4", "speed": "480"}.get(
+            os.path.basename(p), ""
+        )
+        result = get_polling_rate("/sys/bus/usb/devices/1-1")
+        self.assertEqual(result, 1000)
+
+    @patch("cpu_usb_check.read_file_content")
+    def test_get_polling_rate_high_speed(self, mock_read: Any) -> None:
+        def mock_file_content(path: str, default: str = "") -> str:
+            basename = os.path.basename(path)
+            if basename == "bInterval":
+                return "4"
+            if basename == "speed":
+                return "480"
+            return default
+
+        mock_read.side_effect = mock_file_content
+        result = get_polling_rate("/sys/bus/usb/devices/1-1")
+        self.assertEqual(result, 1000)
+
+    @patch("cpu_usb_check.read_file_content")
+    def test_get_polling_rate_full_speed(self, mock_read: Any) -> None:
+        def mock_file_content(path: str, default: str = "") -> str:
+            basename = os.path.basename(path)
+            if basename == "bInterval":
+                return "8"
+            if basename == "speed":
+                return "12"
+            return default
+
+        mock_read.side_effect = mock_file_content
+        result = get_polling_rate("/sys/bus/usb/devices/1-1")
+        self.assertEqual(result, 125)
+
+    @patch("cpu_usb_check.read_file_content")
+    def test_get_polling_rate_no_binterval(self, mock_read: Any) -> None:
+        mock_read.return_value = ""
+        result = get_polling_rate("/sys/bus/usb/devices/1-1")
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":
