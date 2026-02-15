@@ -190,6 +190,12 @@ def main(
     only_best: bool = typer.Option(
         False, "--only-best", help="Show only devices with BEST status"
     ),
+    show_all: bool = typer.Option(
+        False, "--show-all", help="Show all device classes (not just input devices)"
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Write output to file"
+    ),
     verbose: bool = typer.Option(
         False, "-v", "--verbose", help="Show verbose debug info"
     ),
@@ -296,11 +302,18 @@ def main(
         if read_file_content(os.path.join(dev_path, "bDeviceClass")) == USB_CLASS_HUB:
             continue
 
-        if not is_supported_device:
+        if not is_supported_device and not show_all:
             if verbose:
                 dev_class = read_file_content(os.path.join(dev_path, "bDeviceClass"))
                 console.print(f"  [dim]Skipping {product_name} (class {dev_class})[/]")
             continue
+
+        # For --show-all, include devices even without recognized interface classes
+        if not is_supported_device and show_all:
+            is_supported_device = True
+            device_classes = [
+                read_file_content(os.path.join(dev_path, "bDeviceClass"), "Unknown")
+            ]
 
         found_any = True
 
@@ -389,7 +402,16 @@ def main(
         console.print("")
 
     if json_output:
-        print(json.dumps(data, indent=2))
+        output_str = json.dumps(data, indent=2)
+        if output:
+            with open(output, "w") as f:
+                f.write(output_str)
+        else:
+            print(output_str)
+    elif output:
+        console.print(
+            "[dim]Note: --output is only supported with --json. Use shell redirection for text output.[/]"
+        )
 
 
 if __name__ == "__main__":

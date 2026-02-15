@@ -30,6 +30,14 @@ dependencies = [
     "rich>=13.0.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [project.urls]
 Homepage = "https://github.com/lance0/cpu-direct-linux"
 Repository = "https://github.com/lance0/cpu-direct-linux"
@@ -40,9 +48,7 @@ cpu-usb-check = "cpu_usb_check:main"
 
 [tool.setuptools]
 packages = { find = { include = ["cpu_usb_check*"] } }
-
-[tool.setuptools.package-data]
-"" = ["README.md", "LICENSE"]
+package-data = { "*" = ["README.md", "LICENSE"] }
 
 [tool.black]
 line-length = 88

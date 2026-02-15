@@ -29,13 +29,13 @@ class TestCpuUsbCheck(unittest.TestCase):
 
     @patch("subprocess.check_output")
     def test_get_pci_name_success(self, mock_subprocess: Any) -> None:
-        mock_subprocess.return_value = b"05:00.4 USB controller: Test Controller"
+        mock_subprocess.return_value = "05:00.4 USB controller: Test Controller"
         result = get_pci_name("05:00.4")
         self.assertEqual(result, "Test Controller")
 
     @patch("subprocess.check_output")
     def test_get_pci_name_no_usb(self, mock_subprocess: Any) -> None:
-        mock_subprocess.return_value = b"05:00.4 Some other device"
+        mock_subprocess.return_value = "05:00.4 Some other device"
         result = get_pci_name("05:00.4")
         self.assertEqual(result, "05:00.4 Some other device")
 
