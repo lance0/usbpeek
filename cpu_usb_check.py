@@ -25,6 +25,15 @@ USB_CLASS_WIRELESS = "e0"
 
 DEVICE_CLASSES = (USB_CLASS_HID, USB_CLASS_AUDIO, USB_CLASS_VIDEO)
 
+DEVICE_CLASS_NAMES = {
+    "hid": USB_CLASS_HID,
+    "audio": USB_CLASS_AUDIO,
+    "video": USB_CLASS_VIDEO,
+    "wireless": USB_CLASS_WIRELESS,
+    "hub": USB_CLASS_HUB,
+    "controller": USB_CLASS_CONTROLLER,
+}
+
 PCI_SLOT_PATTERN = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
 USB_DEVICE_PATTERN = re.compile(r"^\d+-\d+(\.\d+)*$")
 HID_NAME_FILTER = re.compile(
@@ -199,6 +208,24 @@ def main(
     verbose: bool = typer.Option(
         False, "-v", "--verbose", help="Show verbose debug info"
     ),
+    quiet: bool = typer.Option(
+        False, "-q", "--quiet", help="Suppress non-essential output"
+    ),
+    summary: bool = typer.Option(
+        False, "--summary", help="Show only a summary of device counts"
+    ),
+    device_class: Optional[List[str]] = typer.Option(
+        None,
+        "--device-class",
+        "-d",
+        help="Filter by device class (hid, audio, video, wireless)",
+    ),
+    controller: Optional[str] = typer.Option(
+        None,
+        "--controller",
+        "-c",
+        help="Show only devices on a specific controller (partial name match)",
+    ),
     version: bool = typer.Option(False, "--version", help="Show version"),
 ) -> None:
     if version:
@@ -257,7 +284,7 @@ def main(
                         )
                     )
 
-                    if not json_output:
+                    if not json_output and not quiet:
                         prefix = (
                             "[green][CPU][/]    " if is_cpu else "[dim][Chipset][/]"
                         )
@@ -269,8 +296,11 @@ def main(
         else:
             console.print(f"[bold red]Error scanning controllers: {e}[/]")
 
-    if not json_output:
+    if not json_output and not quiet:
         console.print("")
+
+    if not json_output and not quiet:
+        console.print("[bold yellow]CONTROLLERS[/]")
 
     found_any = False
 
@@ -315,6 +345,19 @@ def main(
                 read_file_content(os.path.join(dev_path, "bDeviceClass"), "Unknown")
             ]
 
+        # Filter by device class if specified
+        if device_class:
+            filtered_classes = [
+                DEVICE_CLASS_NAMES.get(dc.lower()) for dc in device_class
+            ]
+            filtered_classes = [c for c in filtered_classes if c]
+            if not any(dc in device_classes for dc in filtered_classes):
+                if verbose:
+                    console.print(
+                        f"  [dim]Skipping {product_name} (not in requested classes)[/]"
+                    )
+                continue
+
         found_any = True
 
         info = get_usb_info(dev_path)
@@ -327,6 +370,14 @@ def main(
             if pci_slot
             else {"name": "Unknown", "is_cpu": False}
         )
+
+        # Filter by controller if specified
+        if controller and controller.lower() not in ctrl_info["name"].lower():
+            if verbose:
+                console.print(
+                    f"  [dim]Skipping {product_name} (not on controller {controller})[/]"
+                )
+            continue
 
         is_cpu = ctrl_info["is_cpu"]
         has_hub = info["hub_count"] > 0
@@ -353,7 +404,10 @@ def main(
         }
         data["devices"].append(cast(DeviceInfo, device_data))
 
-        if not json_output:
+        if not json_output and not quiet:
+            if found_any:
+                console.print("")
+            console.print("[bold yellow]DEVICES[/]")
             console.print("")
             console.print(f"  [white]{product_name}[/]")
             console.print(f"  [dim]VID:PID {vid}:{pid}[/]")
@@ -377,7 +431,27 @@ def main(
             )
             console.print(f"  [dim]Status: [{status_color}][{status}][/]")
 
-    if not json_output:
+    # Calculate summary
+    status_counts: Dict[str, int] = {
+        "BEST": 0,
+        "HUB": 0,
+        "CHIPSET": 0,
+        "CHIPSET+HUB": 0,
+    }
+    for dev in data["devices"]:
+        status_counts[dev["status"]] = status_counts.get(dev["status"], 0) + 1
+
+    if summary:
+        console.print("")
+        console.print("[bold yellow]Summary:[/]")
+        console.print(f"  [green]BEST:        {status_counts['BEST']}[/]")
+        console.print(f"  [yellow]HUB:         {status_counts['HUB']}[/]")
+        console.print(f"  [yellow]CHIPSET:     {status_counts['CHIPSET']}[/]")
+        console.print(f"  [red]CHIPSET+HUB: {status_counts['CHIPSET+HUB']}[/]")
+        console.print(f"  [dim]Total:       {len(data['devices'])}[/]")
+        console.print("")
+
+    if not json_output and not quiet:
         if not found_any:
             console.print("\n  [dim]No supported USB devices found.[/]")
 
