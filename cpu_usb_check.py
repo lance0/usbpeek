@@ -196,14 +196,25 @@ console = Console()
 def main(
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output"),
     json_output: bool = typer.Option(False, "--json", help="Output in JSON format"),
+    csv_output: bool = typer.Option(False, "--csv", help="Output in CSV format"),
+    table_output: bool = typer.Option(False, "--table", help="Output in table format"),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        "-f",
+        help="Output format: json, csv, table",
+    ),
     only_best: bool = typer.Option(
         False, "--only-best", help="Show only devices with BEST status"
     ),
     show_all: bool = typer.Option(
         False, "--show-all", help="Show all device classes (not just input devices)"
     ),
-    output: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Write output to file"
+    output_file: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write output to file (for json/csv formats)",
     ),
     verbose: bool = typer.Option(
         False, "-v", "--verbose", help="Show verbose debug info"
@@ -236,7 +247,22 @@ def main(
         typer.echo(prog_version)
         raise typer.Exit()
 
-    if no_color or json_output:
+    # Determine output mode first for console setup
+    if format:
+        format = format.lower()
+        if format == "json":
+            json_output = True
+        elif format == "csv":
+            csv_output = True
+        elif format == "table":
+            table_output = True
+        else:
+            typer.echo(
+                f"Error: Unknown format '{format}'. Use json, csv, or table.", err=True
+            )
+            raise typer.Exit(1)
+
+    if no_color or json_output or csv_output or table_output:
         Colors.disable()
         console = Console(force_terminal=False)
     else:
@@ -248,11 +274,14 @@ def main(
         )
         != 0
     ):
-        error_msg = "Error: 'lspci' command not found. Please install pciutils (e.g., sudo apt install pciutils)."
-        if json_output:
+        error_msg = "lspci command not found. Please install pciutils (e.g., sudo apt install pciutils)."
+        if csv_output:
+            print("error,message")
+            print(f'1,"{error_msg}"')
+        elif json_output:
             print(json.dumps({"error": error_msg}))
         else:
-            console.print(f"[bold red]{error_msg}[/]")
+            console.print(f"[bold red]Error: {error_msg}[/]")
         raise typer.Exit(1)
 
     controllers: Dict[str, Dict[str, Any]] = {}
@@ -477,15 +506,65 @@ def main(
 
     if json_output:
         output_str = json.dumps(data, indent=2)
-        if output:
-            with open(output, "w") as f:
+        if output_file:
+            with open(output_file, "w") as f:
                 f.write(output_str)
         else:
             print(output_str)
-    elif output:
-        console.print(
-            "[dim]Note: --output is only supported with --json. Use shell redirection for text output.[/]"
+    elif csv_output:
+        import csv
+        import io
+
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        csv_writer.writerow(
+            ["Name", "VID:PID", "Controller", "Controller Type", "Status", "Hubs"]
         )
+        for dev in data["devices"]:
+            csv_writer.writerow(
+                [
+                    dev["name"],
+                    dev["vid_pid"],
+                    dev["controller"],
+                    dev["controller_type"],
+                    dev["status"],
+                    ", ".join(dev["hubs"]) if dev["hubs"] else "",
+                ]
+            )
+        csv_str = csv_buffer.getvalue()
+        if output_file:
+            with open(output_file, "w") as f:
+                f.write(csv_str)
+        else:
+            print(csv_str)
+    elif table_output:
+        from rich.table import Table
+
+        table = Table(title="USB Devices")
+        table.add_column("Name", style="white")
+        table.add_column("VID:PID", style="dim")
+        table.add_column("Controller", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Hubs", style="yellow")
+
+        for dev in data["devices"]:
+            status_style = (
+                "green"
+                if dev["status"] == "BEST"
+                else "yellow"
+                if dev["status"] in ["HUB", "CHIPSET"]
+                else "red"
+            )
+            table.add_row(
+                dev["name"],
+                dev["vid_pid"],
+                dev["controller"][:40] + "..."
+                if len(dev["controller"]) > 40
+                else dev["controller"],
+                f"[{status_style}]{dev['status']}[/{status_style}]",
+                ", ".join(dev["hubs"]) if dev["hubs"] else "-",
+            )
+        console.print(table)
 
 
 if __name__ == "__main__":
