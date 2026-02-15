@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
-# CPU Direct USB Checker (Linux Port)
-# Based on the tool by Marius Heier: https://tools.mariusheier.com/cpudirect.html
+# usbpeek - USB latency and topology analyzer for Linux
+# Based on the original tool by Marius Heier: https://tools.mariusheier.com/cpudirect.html
 #
 import os
 import subprocess
