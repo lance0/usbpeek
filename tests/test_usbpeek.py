@@ -27,6 +27,19 @@ class TestUsbPeek(unittest.TestCase):
             result = read_file_content("/fake/path", "default")
             self.assertEqual(result, "default")
 
+    def test_read_file_content_permission_error(self) -> None:
+        with patch("builtins.open", side_effect=PermissionError):
+            result = read_file_content("/fake/path", "default")
+            self.assertEqual(result, "default")
+
+    def test_read_file_content_unicode_error(self) -> None:
+        with patch(
+            "builtins.open",
+            side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid"),
+        ):
+            result = read_file_content("/fake/path", "default")
+            self.assertEqual(result, "default")
+
     @patch("subprocess.check_output")
     def test_get_pci_name_success(self, mock_subprocess: Any) -> None:
         mock_subprocess.return_value = "05:00.4 USB controller: Test Controller"
@@ -57,6 +70,25 @@ class TestUsbPeek(unittest.TestCase):
 
     def test_is_cpu_controller_cpu(self) -> None:
         self.assertTrue(is_cpu_controller("AMD USB Controller", "00:00.0"))
+
+    def test_is_cpu_controller_renesas(self) -> None:
+        self.assertFalse(
+            is_cpu_controller("Renesas Electronics Corp. uPD720200", "00:00.0")
+        )
+
+    def test_is_cpu_controller_promontory(self) -> None:
+        self.assertFalse(is_cpu_controller("AMD Promontory", "00:00.0"))
+
+    def test_is_cpu_controller_intel(self) -> None:
+        self.assertTrue(
+            is_cpu_controller("Intel Corporation USB 3.2 Gen 2x2", "00:00.0")
+        )
+
+    def test_is_cpu_controller_fresco(self) -> None:
+        self.assertFalse(is_cpu_controller("Fresco Logic FL1100", "00:00.0"))
+
+    def test_is_cpu_controller_vl805(self) -> None:
+        self.assertFalse(is_cpu_controller("VIA Labs VL805", "00:00.0"))
 
     @patch("os.path.realpath")
     @patch("os.path.dirname")
