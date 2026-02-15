@@ -4,7 +4,9 @@ A Python utility to analyze USB device latency and topology on Linux.
 
 Detect whether your USB devices are connected through CPU-direct or Chipset USB ports, and check their polling rates.
 
-Based on the original tool by [Marius Heier](https://tools.mariusheier.com/cpudirect.html).
+Based on the original tools by [Marius Heier](https://github.com/MariusHeier):
+- [cpu-direct-usb](https://github.com/MariusHeier/cpu-direct-usb) - CPU vs Chipset detection
+- [deeppoll](https://github.com/MariusHeier/deeppoll) - USB polling rate analysis
 
 ## Why does this matter?
 
